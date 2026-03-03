@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  mp3-midi-api:
+    build: .
+    container_name: mp3-midi-api
+    ports:
+      - "8080:8080"
+    restart: always
+    volumes:
+      - uploads:/tmp/mp3-midi-uploads
+
+volumes:
+  uploads:
