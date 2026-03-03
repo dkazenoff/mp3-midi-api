@@ -13,6 +13,9 @@ Cargo.lock
 .DS_Store
 Thumbs.db
 
+# Environment
+.env
+
 # Uploads
 /tmp/
 *.mp3
