@@ -1,5 +1,7 @@
+mod llm;
+
 use axum::{
-    extract::Multipart,
+    extract::{Multipart, Query},
     http::StatusCode,
     response::{Html, IntoResponse, Json},
     routing::{get, post},
@@ -30,7 +32,14 @@ struct ConversionResponse {
     success: bool,
     midi_file: Option<String>,
     json_data: Option<MidiData>,
+    llm_analysis: Option<String>,
     error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GenerateQuery {
+    prompt: String,
+    api_key: Option<String>,
 }
 
 async fn index_handler() -> Html<&'static str> {
@@ -112,10 +121,22 @@ async fn upload_handler(mut multipart: Multipart) -> impl IntoResponse {
             // Parse MIDI to JSON
             match parse_midi_to_json(&expected_midi) {
                 Ok(midi_data) => {
+                    let midi_json = serde_json::to_string_pretty(&midi_data).unwrap_or_default();
+                    
+                    // Try LLM analysis if API key is available
+                    let llm_analysis = if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
+                        llm::enhance_midi_with_llm(&midi_json, &api_key, "openai")
+                            .await
+                            .ok()
+                    } else {
+                        None
+                    };
+
                     return Json(ConversionResponse {
                         success: true,
                         midi_file: Some(file_id.to_string()),
                         json_data: Some(midi_data),
+                        llm_analysis,
                         error: None,
                     })
                     .into_response();
@@ -125,6 +146,7 @@ async fn upload_handler(mut multipart: Multipart) -> impl IntoResponse {
                         success: false,
                         midi_file: None,
                         json_data: None,
+                        llm_analysis: None,
                         error: Some(format!("MIDI parsing failed: {}", e)),
                     })
                     .into_response();
@@ -137,9 +159,66 @@ async fn upload_handler(mut multipart: Multipart) -> impl IntoResponse {
         success: false,
         midi_file: None,
         json_data: None,
+        llm_analysis: None,
         error: Some("No file uploaded".to_string()),
     })
     .into_response()
+}
+
+async fn generate_handler(Query(params): Query<GenerateQuery>) -> impl IntoResponse {
+    let api_key = params.api_key
+        .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+        .unwrap_or_default();
+
+    if api_key.is_empty() {
+        return Json(ConversionResponse {
+            success: false,
+            midi_file: None,
+            json_data: None,
+            llm_analysis: None,
+            error: Some("No API key provided".to_string()),
+        })
+        .into_response();
+    }
+
+    match llm::generate_midi_from_prompt(&params.prompt, &api_key).await {
+        Ok(llm_response) => {
+            // Try to parse the LLM response as MIDI data
+            match serde_json::from_str::<MidiData>(&llm_response) {
+                Ok(midi_data) => {
+                    Json(ConversionResponse {
+                        success: true,
+                        midi_file: None,
+                        json_data: Some(midi_data),
+                        llm_analysis: Some(llm_response),
+                        error: None,
+                    })
+                    .into_response()
+                }
+                Err(_) => {
+                    // LLM didn't return valid JSON, return as analysis
+                    Json(ConversionResponse {
+                        success: false,
+                        midi_file: None,
+                        json_data: None,
+                        llm_analysis: Some(llm_response),
+                        error: Some("LLM response was not valid MIDI JSON".to_string()),
+                    })
+                    .into_response()
+                }
+            }
+        }
+        Err(e) => {
+            Json(ConversionResponse {
+                success: false,
+                midi_file: None,
+                json_data: None,
+                llm_analysis: None,
+                error: Some(format!("LLM generation failed: {}", e)),
+            })
+            .into_response()
+        }
+    }
 }
 
 fn parse_midi_to_json(midi_path: &PathBuf) -> Result<MidiData, String> {
@@ -190,6 +269,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/api/upload", post(upload_handler))
+        .route("/api/generate", get(generate_handler))
         .nest_service("/static", ServeDir::new("static"))
         .layer(CorsLayer::permissive());
 

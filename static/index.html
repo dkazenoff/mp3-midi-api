@@ -144,7 +144,20 @@
             <pre id="jsonOutput"></pre>
         </div>
 
+        <div class="result" id="llmResult" style="display: none;">
+            <h3>🤖 LLM Analysis</h3>
+            <pre id="llmOutput" style="white-space: pre-wrap;"></pre>
+        </div>
+
         <div id="errorMsg" class="error" style="display: none;"></div>
+
+        <div style="margin-top: 40px; padding: 30px; background: #f0f4ff; border-radius: 10px;">
+            <h3 style="margin-bottom: 20px;">🎼 Generate MIDI with AI</h3>
+            <p style="color: #666; margin-bottom: 15px;">Describe the music you want and let the LLM create it</p>
+            <input type="text" id="promptInput" placeholder="e.g., Happy birthday melody in C major" style="width: 100%; padding: 15px; font-size: 1em; border: 2px solid #667eea; border-radius: 8px; margin-bottom: 15px;">
+            <input type="text" id="apiKeyInput" placeholder="OpenAI API Key (optional if server has it)" style="width: 100%; padding: 15px; font-size: 1em; border: 2px solid #ddd; border-radius: 8px; margin-bottom: 15px;">
+            <button onclick="generateMidi()" style="width: 100%;">🚀 Generate with LLM</button>
+        </div>
 
         <div class="test-clips">
             <h3>🎼 Baroque Test Clips</h3>
@@ -166,6 +179,8 @@
         const spinner = document.getElementById('spinner');
         const result = document.getElementById('result');
         const jsonOutput = document.getElementById('jsonOutput');
+        const llmResult = document.getElementById('llmResult');
+        const llmOutput = document.getElementById('llmOutput');
         const errorMsg = document.getElementById('errorMsg');
 
         let selectedFile = null;
@@ -208,6 +223,7 @@
             uploadBtn.disabled = true;
             spinner.style.display = 'block';
             result.classList.remove('show');
+            llmResult.style.display = 'none';
             errorMsg.style.display = 'none';
 
             const formData = new FormData();
@@ -224,6 +240,11 @@
                 if (data.success) {
                     jsonOutput.textContent = JSON.stringify(data.json_data, null, 2);
                     result.classList.add('show');
+                    
+                    if (data.llm_analysis) {
+                        llmOutput.textContent = data.llm_analysis;
+                        llmResult.style.display = 'block';
+                    }
                 } else {
                     errorMsg.textContent = '❌ ' + (data.error || 'Conversion failed');
                     errorMsg.style.display = 'block';
@@ -239,6 +260,54 @@
 
         function loadTestClip(clip) {
             alert('Test clip loading: ' + clip + '\n\nNote: Sample audio files need to be added to the container.');
+        }
+
+        async function generateMidi() {
+            const prompt = document.getElementById('promptInput').value;
+            const apiKey = document.getElementById('apiKeyInput').value;
+
+            if (!prompt) {
+                alert('Please enter a music prompt');
+                return;
+            }
+
+            spinner.style.display = 'block';
+            result.classList.remove('show');
+            llmResult.style.display = 'none';
+            errorMsg.style.display = 'none';
+
+            try {
+                let url = `/api/generate?prompt=${encodeURIComponent(prompt)}`;
+                if (apiKey) {
+                    url += `&api_key=${encodeURIComponent(apiKey)}`;
+                }
+
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.success && data.json_data) {
+                    jsonOutput.textContent = JSON.stringify(data.json_data, null, 2);
+                    result.classList.add('show');
+                    
+                    if (data.llm_analysis) {
+                        llmOutput.textContent = data.llm_analysis;
+                        llmResult.style.display = 'block';
+                    }
+                } else {
+                    errorMsg.textContent = '❌ ' + (data.error || 'Generation failed');
+                    errorMsg.style.display = 'block';
+                    
+                    if (data.llm_analysis) {
+                        llmOutput.textContent = data.llm_analysis;
+                        llmResult.style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                errorMsg.textContent = '❌ Network error: ' + error.message;
+                errorMsg.style.display = 'block';
+            } finally {
+                spinner.style.display = 'none';
+            }
         }
     </script>
 </body>

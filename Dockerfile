@@ -44,4 +44,6 @@ RUN mkdir -p /tmp/mp3-midi-uploads
 
 EXPOSE 8080
 
+ENV OPENAI_API_KEY=""
+
 CMD ["/app/mp3-midi-api"]

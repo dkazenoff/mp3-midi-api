@@ -7,6 +7,8 @@ services:
     ports:
       - "8080:8080"
     restart: always
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     volumes:
       - uploads:/tmp/mp3-midi-uploads
 
