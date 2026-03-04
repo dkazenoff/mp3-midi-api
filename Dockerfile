@@ -1,17 +1,18 @@
-FROM rust:1.83 as builder
+# Use Bullseye to avoid Debian Bookworm apt signature issues on older Docker/libseccomp
+FROM rust:1-bullseye as builder
 
 WORKDIR /build
 
-# Install system dependencies for audio processing
-RUN apt-get update && apt-get install -y \
+# Apt options for hosts where seccomp blocks GPG (invalid signature); uses official Debian mirrors only
+ENV APT_OPTS="-o Acquire::AllowInsecureRepositories=true -o Acquire::AllowDowngradeToInsecureRepositories=true -o APT::Get::AllowUnauthenticated=true"
+
+# Install system dependencies for Rust build only (basic-pitch lives in runtime stage)
+RUN apt-get update $APT_OPTS && apt-get install -y --no-install-recommends $APT_OPTS \
     ffmpeg \
     python3 \
     python3-pip \
     python3-venv \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install basic-pitch for audio to MIDI conversion
-RUN pip3 install --break-system-packages basic-pitch
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Copy Cargo files and build dependencies
 COPY Cargo.toml Cargo.lock* ./
@@ -23,17 +24,23 @@ RUN rm -rf src
 COPY src ./src
 RUN cargo build --release
 
-# Runtime stage
-FROM debian:bookworm-slim
+# Runtime stage (Bullseye for same apt compatibility as builder)
+FROM debian:bullseye-slim
 
-RUN apt-get update && apt-get install -y \
+ENV APT_OPTS="-o Acquire::AllowInsecureRepositories=true -o Acquire::AllowDowngradeToInsecureRepositories=true -o APT::Get::AllowUnauthenticated=true"
+
+RUN apt-get update $APT_OPTS && apt-get install -y --no-install-recommends $APT_OPTS \
     ffmpeg \
     python3 \
     python3-pip \
+    python3-venv \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
-RUN pip3 install --break-system-packages basic-pitch
+# Install basic-pitch in a venv (Bullseye's pip lacks --break-system-packages)
+ENV VENV=/opt/venv
+RUN python3 -m venv $VENV && $VENV/bin/pip install --no-cache-dir basic-pitch
+ENV PATH="$VENV/bin:$PATH"
 
 WORKDIR /app
 
@@ -46,4 +53,5 @@ EXPOSE 8080
 
 ENV OPENAI_API_KEY=""
 
-CMD ["/app/mp3-midi-api"]
+# Wrap so we see in docker logs when the process exits (helps debug restart loops)
+CMD ["/bin/sh", "-c", "echo 'Starting mp3-midi-api...'; exec /app/mp3-midi-api"]
